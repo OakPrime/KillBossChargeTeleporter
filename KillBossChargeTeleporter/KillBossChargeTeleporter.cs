@@ -1,7 +1,10 @@
 using BepInEx;
+using Mono.Security.Authenticode;
 using RoR2;
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using UnityEngine;
 using UnityEngine.TextCore.Text;
 
 namespace KillBossChargeTeleporter
@@ -22,7 +25,7 @@ namespace KillBossChargeTeleporter
         public const string PluginGUID = PluginAuthor + "." + PluginName;
         public const string PluginAuthor = "OakPrime";
         public const string PluginName = "KillBossChargeTeleporter";
-        public const string PluginVersion = "1.0.3";
+        public const string PluginVersion = "1.1.0";
 
         //The Awake() method is run at the very start when the game is initialized.
         public void Awake()
@@ -39,36 +42,56 @@ namespace KillBossChargeTeleporter
                     float runStopwatch = Run.instance.GetRunStopwatch();
                     int num1 = Math.Min(Util.GetItemCountForTeam(self.holdoutZoneController.chargingTeam, RoR2Content.Items.FocusConvergence.itemIndex, true), 3);
                     float num2 = (float)Math.Round((100.0 - (double)displayChargePercent) / 100.0 * ((double)TeleporterInteraction.instance.holdoutZoneController.baseChargeDuration / (1.0 + 0.300000011920929 * (double)num1)), 2);
+                    GrantWouldBeRewards(num2, self.bonusDirector, self);
                     Run.instance.SetRunStopwatch(runStopwatch + (float)Math.Round((double)num2, 2));
                     TeleporterInteraction.instance.holdoutZoneController.FullyChargeHoldoutZone();
                 });
-                /*On.RoR2.TeleporterInteraction.UpdateMonstersClear += (orig, self) =>
-                {
-                    orig(self);
-                    if (self != null && self.monstersCleared && self.holdoutZoneController && self.activationState == TeleporterInteraction.ActivationState.Charging && self.chargeFraction > 0.02f)
-                    {
-                        int displayChargePercent = TeleporterInteraction.instance.holdoutZoneController.displayChargePercent;
-                        float runStopwatch = Run.instance.GetRunStopwatch();
-                        int num = Math.Min(Util.GetItemCountForTeam(self.holdoutZoneController.chargingTeam, RoR2Content.Items.FocusConvergence.itemIndex, true, true), 3);
-                        float num2 = (100f - (float)displayChargePercent) / 100f * (TeleporterInteraction.instance.holdoutZoneController.baseChargeDuration / (1f + 0.3f * (float)num));
-                        num2 = (float)Math.Round((double)num2, 2);
-                        float runStopwatch2 = runStopwatch + (float)Math.Round((double)num2, 2);
-                        Run.instance.SetRunStopwatch(runStopwatch2);
-                        TeleporterInteraction.instance.holdoutZoneController.FullyChargeHoldoutZone();
-                        //charMaster.GiveMoney(Run.instance.GetDifficultyScaledCost((int)((100 - displayChargePercent) * 0.70f)));
-                        //Chat.AddMessage("Added " + num2.ToString() + " seconds to the game timer.");
-                    }
-                };*/
-                On.RoR2.CombatSquad.AddMember += (orig, self, charMaster) =>
-                {
-                    orig(self, charMaster);
-                    
-                };
             }
             catch (Exception e)
             {
                 Logger.LogError(e.Message + " - " + e.StackTrace);
             };
+        }
+
+        private static void GrantWouldBeRewards(float timeRemaining, CombatDirector combatDirector, TeleporterInteraction tpInteraction)
+        {
+            float monsterCredit = combatDirector.monsterCredit;
+            for (int index = 0; index < combatDirector.moneyWaves.Length; ++index)
+            {
+                monsterCredit += combatDirector.moneyWaves[index].Update(timeRemaining, Run.instance.compensatedDifficultyCoefficient);
+                while (combatDirector.moneyWaves[index].timer > combatDirector.moneyWaves[index].interval)
+                {
+                    monsterCredit += combatDirector.moneyWaves[index].Update(0.0f, Run.instance.compensatedDifficultyCoefficient);
+                }
+            }
+            float b = monsterCredit * combatDirector.expRewardCoefficient;
+            if ((double)b > (double)Mathf.Epsilon)
+            {
+                uint expReward = (uint)Mathf.Max(1f, b * Run.instance.compensatedDifficultyCoefficient);
+
+                float num = (float)(1.0 + ((double)Run.instance.ambientLevel - 1.0) * 0.300000011920929);
+                CharacterBody playerBody = null;
+                foreach (PlayerCharacterMasterController controller in PlayerCharacterMasterController._instancesReadOnly)
+                {
+                    if (controller.body != null)
+                    {
+                        playerBody = controller.body;
+                        break;
+                    }
+                }
+                if (playerBody == null)
+                {
+                    Log.LogError("No player bodies found!");
+                    return;
+                }
+                ExperienceManager.instance.AwardExperience(tpInteraction.teleporterPositionIndicator.defaultPosition, playerBody, (ulong)(uint)((double)expReward * (double)num));
+
+                uint goldReward = (uint)Mathf.Max(1f, (float)((double)b * (double)combatDirector.goldRewardCoefficient * 2.0) * Run.instance.compensatedDifficultyCoefficient);
+                if (Run.instance.selectedDifficulty >= DifficultyIndex.Eclipse6)
+                    goldReward = (uint)((double)goldReward * 0.800000011920929);
+                TeamManager.instance.GiveTeamMoney(tpInteraction.holdoutZoneController.chargingTeam, goldReward);
+            }
+
         }
     }
 }
