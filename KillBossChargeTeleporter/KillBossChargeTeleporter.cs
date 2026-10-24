@@ -1,11 +1,8 @@
 using BepInEx;
-using Mono.Security.Authenticode;
 using RoR2;
 using System;
-using System.Collections.Generic;
-using System.Linq;
 using UnityEngine;
-using UnityEngine.TextCore.Text;
+using UnityEngine.Networking;
 
 namespace KillBossChargeTeleporter
 {
@@ -25,7 +22,7 @@ namespace KillBossChargeTeleporter
         public const string PluginGUID = PluginAuthor + "." + PluginName;
         public const string PluginAuthor = "OakPrime";
         public const string PluginName = "KillBossChargeTeleporter";
-        public const string PluginVersion = "1.1.0";
+        public const string PluginVersion = "1.1.1";
 
         //The Awake() method is run at the very start when the game is initialized.
         public void Awake()
@@ -36,15 +33,25 @@ namespace KillBossChargeTeleporter
                 On.RoR2.TeleporterInteraction.UpdateMonstersClear += (On.RoR2.TeleporterInteraction.hook_UpdateMonstersClear)((orig, self) =>
                 {
                     orig(self);
-                    if (!((UnityEngine.Object)self != (UnityEngine.Object)null) || !self.monstersCleared || !(bool)(UnityEngine.Object)self.holdoutZoneController || self.activationState != TeleporterInteraction.ActivationState.Charging || (double)self.chargeFraction <= 0.0199999995529652)
+                    // UpdateMonstersClear now also runs on clients; everything below is server-only state
+                    if (!NetworkServer.active || !Run.instance)
                         return;
-                    int displayChargePercent = TeleporterInteraction.instance.holdoutZoneController.displayChargePercent;
+                    if (!self || !self.monstersCleared || !self.holdoutZoneController || self.activationState != TeleporterInteraction.ActivationState.Charging || self.chargeFraction <= 0.02f)
+                        return;
+                    HoldoutZoneController holdoutZone = self.holdoutZoneController;
+                    int displayChargePercent = holdoutZone.displayChargePercent;
                     float runStopwatch = Run.instance.GetRunStopwatch();
-                    int num1 = Math.Min(Util.GetItemCountForTeam(self.holdoutZoneController.chargingTeam, RoR2Content.Items.FocusConvergence.itemIndex, true), 3);
-                    float num2 = (float)Math.Round((100.0 - (double)displayChargePercent) / 100.0 * ((double)TeleporterInteraction.instance.holdoutZoneController.baseChargeDuration / (1.0 + 0.300000011920929 * (double)num1)), 2);
-                    GrantWouldBeRewards(num2, self.bonusDirector, self);
-                    Run.instance.SetRunStopwatch(runStopwatch + (float)Math.Round((double)num2, 2));
-                    TeleporterInteraction.instance.holdoutZoneController.FullyChargeHoldoutZone();
+                    int num1 = Math.Min(Util.GetTotalItemCountFromTeam(new Util.GetTotalItemCountFromTeamArgs(RoR2Content.Items.FocusConvergence.itemIndex)
+                    {
+                        requiresAlive = true,
+                        requiredTeam = holdoutZone.chargingTeam,
+                        requiresConnected = true
+                    }), 3);
+                    float num2 = (float)Math.Round((100.0 - (double)displayChargePercent) / 100.0 * ((double)holdoutZone.baseChargeDuration / (1.0 + 0.300000011920929 * (double)num1)), 2);
+                    if (self.bonusDirector && self.bonusDirector.moneyWaves != null)
+                        GrantWouldBeRewards(num2, self.bonusDirector, self);
+                    Run.instance.SetRunStopwatch(runStopwatch + num2);
+                    holdoutZone.FullyChargeHoldoutZone();
                 });
             }
             catch (Exception e)
@@ -89,7 +96,7 @@ namespace KillBossChargeTeleporter
                 uint goldReward = (uint)Mathf.Max(1f, (float)((double)b * (double)combatDirector.goldRewardCoefficient * 2.0) * Run.instance.compensatedDifficultyCoefficient);
                 if (Run.instance.selectedDifficulty >= DifficultyIndex.Eclipse6)
                     goldReward = (uint)((double)goldReward * 0.800000011920929);
-                TeamManager.instance.GiveTeamMoney(tpInteraction.holdoutZoneController.chargingTeam, goldReward);
+                TeamManager.instance.GiveTeamMoney(tpInteraction.holdoutZoneController.chargingTeam, goldReward, false);
             }
 
         }
