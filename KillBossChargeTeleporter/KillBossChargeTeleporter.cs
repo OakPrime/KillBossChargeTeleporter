@@ -20,9 +20,9 @@ namespace KillBossChargeTeleporter
         //The Plugin GUID should be a unique ID for this plugin, which is human readable (as it is used in places like the config).
         //If we see this PluginGUID as it is on thunderstore, we will deprecate this mod. Change the PluginAuthor and the PluginName !
         public const string PluginGUID = PluginAuthor + "." + PluginName;
-        public const string PluginAuthor = "OakPrime";
-        public const string PluginName = "KillBossChargeTeleporter";
-        public const string PluginVersion = "1.1.1";
+        public const string PluginAuthor = "Phreel";
+        public const string PluginName = "KillBossChargeTeleporterFork";
+        public const string PluginVersion = "1.1.3";
 
         //The Awake() method is run at the very start when the game is initialized.
         public void Awake()
@@ -33,31 +33,44 @@ namespace KillBossChargeTeleporter
                 On.RoR2.TeleporterInteraction.UpdateMonstersClear += (On.RoR2.TeleporterInteraction.hook_UpdateMonstersClear)((orig, self) =>
                 {
                     orig(self);
-                    // UpdateMonstersClear now also runs on clients; everything below is server-only state
-                    if (!NetworkServer.active || !Run.instance)
-                        return;
-                    if (!self || !self.monstersCleared || !self.holdoutZoneController || self.activationState != TeleporterInteraction.ActivationState.Charging || self.chargeFraction <= 0.02f)
-                        return;
-                    HoldoutZoneController holdoutZone = self.holdoutZoneController;
-                    int displayChargePercent = holdoutZone.displayChargePercent;
-                    float runStopwatch = Run.instance.GetRunStopwatch();
-                    int num1 = Math.Min(Util.GetTotalItemCountFromTeam(new Util.GetTotalItemCountFromTeamArgs(RoR2Content.Items.FocusConvergence.itemIndex)
-                    {
-                        requiresAlive = true,
-                        requiredTeam = holdoutZone.chargingTeam,
-                        requiresConnected = true
-                    }), 3);
-                    float num2 = (float)Math.Round((100.0 - (double)displayChargePercent) / 100.0 * ((double)holdoutZone.baseChargeDuration / (1.0 + 0.300000011920929 * (double)num1)), 2);
-                    if (self.bonusDirector && self.bonusDirector.moneyWaves != null)
-                        GrantWouldBeRewards(num2, self.bonusDirector, self);
-                    Run.instance.SetRunStopwatch(runStopwatch + num2);
-                    holdoutZone.FullyChargeHoldoutZone();
+                    if (self)
+                        TrySkipCharge(self, self.monstersCleared);
+                });
+                // The DLC4 sequence shrine swaps in its own ChargingState, which never calls UpdateMonstersClear
+                On.RoR2.TeleporterInteraction.FixedUpdate += (On.RoR2.TeleporterInteraction.hook_FixedUpdate)((orig, self) =>
+                {
+                    orig(self);
+                    if (self && self.mainStateMachine && self.mainStateMachine.state is EntityStates.TeleporterCatastrophe.DLC4.Teleporter.ChargingState && self.bossGroup)
+                        TrySkipCharge(self, !self.bossGroup.enabled);
                 });
             }
             catch (Exception e)
             {
                 Logger.LogError(e.Message + " - " + e.StackTrace);
             };
+        }
+
+        private static void TrySkipCharge(TeleporterInteraction self, bool monstersCleared)
+        {
+            // UpdateMonstersClear now also runs on clients; everything below is server-only state
+            if (!NetworkServer.active || !Run.instance)
+                return;
+            if (!monstersCleared || !self.holdoutZoneController || self.activationState != TeleporterInteraction.ActivationState.Charging || self.chargeFraction <= 0.02f || self.holdoutZoneController.charge >= 1f)
+                return;
+            HoldoutZoneController holdoutZone = self.holdoutZoneController;
+            int displayChargePercent = holdoutZone.displayChargePercent;
+            float runStopwatch = Run.instance.GetRunStopwatch();
+            int num1 = Math.Min(Util.GetTotalItemCountFromTeam(new Util.GetTotalItemCountFromTeamArgs(RoR2Content.Items.FocusConvergence.itemIndex)
+            {
+                requiresAlive = true,
+                requiredTeam = holdoutZone.chargingTeam,
+                requiresConnected = true
+            }), 3);
+            float num2 = (float)Math.Round((100.0 - (double)displayChargePercent) / 100.0 * ((double)holdoutZone.baseChargeDuration / (1.0 + 0.300000011920929 * (double)num1)), 2);
+            if (self.bonusDirector && self.bonusDirector.moneyWaves != null)
+                GrantWouldBeRewards(num2, self.bonusDirector, self);
+            Run.instance.SetRunStopwatch(runStopwatch + num2);
+            holdoutZone.FullyChargeHoldoutZone();
         }
 
         private static void GrantWouldBeRewards(float timeRemaining, CombatDirector combatDirector, TeleporterInteraction tpInteraction)
