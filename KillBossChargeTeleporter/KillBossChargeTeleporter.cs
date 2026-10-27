@@ -20,9 +20,9 @@ namespace KillBossChargeTeleporter
         //The Plugin GUID should be a unique ID for this plugin, which is human readable (as it is used in places like the config).
         //If we see this PluginGUID as it is on thunderstore, we will deprecate this mod. Change the PluginAuthor and the PluginName !
         public const string PluginGUID = PluginAuthor + "." + PluginName;
-        public const string PluginAuthor = "Phreel";
-        public const string PluginName = "KillBossChargeTeleporterFork";
-        public const string PluginVersion = "1.1.3";
+        public const string PluginAuthor = "OakPrime";
+        public const string PluginName = "KillBossChargeTeleporter";
+        public const string PluginVersion = "1.1.1";
 
         //The Awake() method is run at the very start when the game is initialized.
         public void Awake()
